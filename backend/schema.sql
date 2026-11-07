@@ -1,5 +1,5 @@
 -- =========================================================================
--- Flipkart Clone Database Schema (Supabase SQL)
+-- Flipkart Clone Database Schema & RLS Fix (Supabase SQL)
 -- Run this in Supabase Dashboard -> SQL Editor -> Run
 -- =========================================================================
 
@@ -7,7 +7,7 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 1. USERS TABLE
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE IF NOT EXISTS public.users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) UNIQUE NOT NULL,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- 2. PRODUCTS TABLE
-CREATE TABLE IF NOT EXISTS products (
+CREATE TABLE IF NOT EXISTS public.products (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title VARCHAR(500) NOT NULL,
   description TEXT,
@@ -38,10 +38,10 @@ CREATE TABLE IF NOT EXISTS products (
 );
 
 -- 3. ORDERS TABLE
-CREATE TABLE IF NOT EXISTS orders (
+CREATE TABLE IF NOT EXISTS public.orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_number VARCHAR(100) UNIQUE NOT NULL,
-  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  user_id UUID,
   customer_name VARCHAR(255) NOT NULL,
   customer_email VARCHAR(255) NOT NULL,
   customer_phone VARCHAR(50),
@@ -56,13 +56,33 @@ CREATE TABLE IF NOT EXISTS orders (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Disable Row Level Security so server service key / backend can read/write without friction
-ALTER TABLE users DISABLE ROW LEVEL SECURITY;
-ALTER TABLE products DISABLE ROW LEVEL SECURITY;
-ALTER TABLE orders DISABLE ROW LEVEL SECURITY;
+-- =========================================================================
+-- CRITICAL FIX: Disable RLS and Grant Full Read/Write Permissions
+-- =========================================================================
 
--- Seed Sample Big Billion Day Products
-INSERT INTO products (title, description, category, brand, price, original_price, discount_percent, stock, image_url, rating, reviews_count, is_bestseller, is_big_billion_deal)
+ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.products DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.orders DISABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if any
+DROP POLICY IF EXISTS "Allow all for users" ON public.users;
+DROP POLICY IF EXISTS "Allow all for products" ON public.products;
+DROP POLICY IF EXISTS "Allow all for orders" ON public.orders;
+
+-- Open policies just in case RLS is re-enabled
+CREATE POLICY "Allow all for users" ON public.users FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all for products" ON public.products FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all for orders" ON public.orders FOR ALL USING (true) WITH CHECK (true);
+
+-- Grant privileges to anon and authenticated roles
+GRANT ALL ON TABLE public.users TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.products TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.orders TO anon, authenticated, service_role;
+
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+
+-- Seed Sample Big Billion Day Products (if table is empty)
+INSERT INTO public.products (title, description, category, brand, price, original_price, discount_percent, stock, image_url, rating, reviews_count, is_bestseller, is_big_billion_deal)
 VALUES
 (
   'Apple iPhone 15 (Blue, 128 GB)',

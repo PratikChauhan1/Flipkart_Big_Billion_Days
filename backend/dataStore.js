@@ -5,7 +5,6 @@ const { v4: uuidv4 } = require('uuid');
 // Initial sample products for Flipkart Big Billion Day
 const initialProducts = [
   {
-    id: 'prod-iphone-15',
     title: 'Apple iPhone 15 (Blue, 128 GB)',
     description: 'Dynamic Island, 48MP Main camera, USB-C, A16 Bionic chip, Super Retina XDR display with ceramic shield front.',
     category: 'Mobiles',
@@ -22,7 +21,6 @@ const initialProducts = [
     created_at: new Date().toISOString()
   },
   {
-    id: 'prod-s24-ultra',
     title: 'Samsung Galaxy S24 Ultra 5G (Titanium Gray, 256 GB)',
     description: 'Galaxy AI is here. 200MP camera, Snapdragon 8 Gen 3, S-Pen included, titanium frame, 5000mAh battery.',
     category: 'Mobiles',
@@ -39,7 +37,6 @@ const initialProducts = [
     created_at: new Date().toISOString()
   },
   {
-    id: 'prod-sony-xm5',
     title: 'Sony WH-1000XM5 Wireless Noise Cancelling Headphones',
     description: 'Industry-leading noise canceling with 2 processors, 8 microphones, 30hr battery life, speak-to-chat.',
     category: 'Electronics',
@@ -56,7 +53,6 @@ const initialProducts = [
     created_at: new Date().toISOString()
   },
   {
-    id: 'prod-macbook-air-m2',
     title: 'Apple MacBook Air M2 (8GB RAM, 256GB SSD, Midnight)',
     description: '13.6-inch Liquid Retina display, MagSafe 3 charging, 1080p FaceTime HD camera, all-day battery life.',
     category: 'Electronics',
@@ -73,7 +69,6 @@ const initialProducts = [
     created_at: new Date().toISOString()
   },
   {
-    id: 'prod-nike-air-max',
     title: 'Nike Air Max 270 Running Shoes For Men',
     description: 'Big Billion Special Edition. Breathable mesh upper, large max air unit in heel for ultra-plush cushioning.',
     category: 'Fashion',
@@ -90,7 +85,6 @@ const initialProducts = [
     created_at: new Date().toISOString()
   },
   {
-    id: 'prod-lg-oled-55',
     title: 'LG 55 Inch OLED 4K Ultra HD Smart TV (Cinema Edition)',
     description: 'Self-lit OLED pixels, alpha 8 AI Processor 4K, Dolby Vision & Atmos, 120Hz refresh rate for ultimate gaming.',
     category: 'Appliances',
@@ -107,7 +101,6 @@ const initialProducts = [
     created_at: new Date().toISOString()
   },
   {
-    id: 'prod-fastrack-smartwatch',
     title: 'Fastrack Revoltt FS1 Pro Smartwatch with 1.96" AMOLED Display',
     description: 'SingleSync BT Calling, 410x502 resolution, Always-on display, NitroFast charging, 110+ sports modes.',
     category: 'Electronics',
@@ -124,7 +117,6 @@ const initialProducts = [
     created_at: new Date().toISOString()
   },
   {
-    id: 'prod-puma-bomber-jacket',
     title: 'Puma Men Classic Solid Casual Bomber Jacket',
     description: 'Windproof, stylish athletic casual jacket with contrast zipper and water-resistant finish.',
     category: 'Fashion',
@@ -145,7 +137,7 @@ const initialProducts = [
 // Fallback in-memory stores
 const memoryStore = {
   users: [],
-  products: [...initialProducts],
+  products: initialProducts.map((p, idx) => ({ ...p, id: 'prod-' + (idx + 1) })),
   orders: []
 };
 
@@ -181,31 +173,45 @@ class DataStore {
   async checkSupabaseConnection() {
     if (!supabase) return;
     try {
-      const { data, error } = await supabase.from('products').select('id').limit(1);
+      const { data, error } = await supabase.from('products').select('*');
       if (!error) {
         this.supabaseAvailable = true;
-        console.log('⚡ Connected to Supabase products table successfully!');
+        console.log(`⚡ Connected to Supabase successfully! (${data ? data.length : 0} products in table)`);
+        
+        // Auto-seed if products table is empty
+        if (data && data.length === 0) {
+          console.log('📦 Supabase products table is empty. Inserting Big Billion Day seed products...');
+          const { error: seedErr } = await supabase.from('products').insert(initialProducts);
+          if (seedErr) {
+            console.error('⚠️ Could not insert seed products (Check Supabase RLS policies):', seedErr.message);
+          } else {
+            console.log('✅ Big Billion Day products seeded into Supabase successfully!');
+          }
+        }
       } else {
-        console.log(`ℹ️ Supabase table note: ${error.message}. (Local storage active, ready for schema.sql)`);
+        console.log(`ℹ️ Supabase note: ${error.message} (Run schema.sql in Supabase SQL editor)`);
       }
     } catch (e) {
-      this.supabaseAvailable = false;
+      console.error('Supabase check error:', e.message);
     }
   }
 
   // --- USER OPERATIONS ---
   async findUserByEmail(email) {
-    if (this.supabaseAvailable) {
+    if (supabase) {
       try {
-        const { data, error } = await supabase.from('users').select('*').eq('email', email).maybeSingle();
+        const { data, error } = await supabase.from('users').select('*').eq('email', email.toLowerCase()).maybeSingle();
         if (!error && data) return data;
+        if (error && error.code !== 'PGRST116') {
+          console.error('Supabase findUserByEmail error:', error.message);
+        }
       } catch (err) {}
     }
     return memoryStore.users.find(u => u.email.toLowerCase() === email.toLowerCase()) || null;
   }
 
   async findUserById(id) {
-    if (this.supabaseAvailable) {
+    if (supabase) {
       try {
         const { data, error } = await supabase.from('users').select('id, name, email, role, phone, address, created_at').eq('id', id).maybeSingle();
         if (!error && data) return data;
@@ -230,11 +236,19 @@ class DataStore {
       created_at: new Date().toISOString()
     };
 
-    if (this.supabaseAvailable) {
+    if (supabase) {
       try {
         const { data, error } = await supabase.from('users').insert([newUser]).select().single();
-        if (!error && data) return data;
-      } catch (err) {}
+        if (!error && data) {
+          console.log('✅ User registered & saved in Supabase:', data.email);
+          return data;
+        }
+        if (error) {
+          console.error('❌ Supabase createUser error (Check RLS policies):', error.message, error.hint || '');
+        }
+      } catch (err) {
+        console.error('❌ Supabase createUser exception:', err.message);
+      }
     }
 
     memoryStore.users.push(newUser);
@@ -244,7 +258,7 @@ class DataStore {
   // --- PRODUCT OPERATIONS ---
   async getAllProducts({ category, search, minPrice, maxPrice, sort } = {}) {
     let prods = [];
-    if (this.supabaseAvailable) {
+    if (supabase) {
       try {
         let query = supabase.from('products').select('*');
         if (category && category !== 'All') query = query.eq('category', category);
@@ -285,7 +299,7 @@ class DataStore {
   }
 
   async getProductById(id) {
-    if (this.supabaseAvailable) {
+    if (supabase) {
       try {
         const { data, error } = await supabase.from('products').select('*').eq('id', id).maybeSingle();
         if (!error && data) return data;
@@ -317,10 +331,16 @@ class DataStore {
       created_at: new Date().toISOString()
     };
 
-    if (this.supabaseAvailable) {
+    if (supabase) {
       try {
         const { data, error } = await supabase.from('products').insert([newProduct]).select().single();
-        if (!error && data) return data;
+        if (!error && data) {
+          console.log('✅ Product saved in Supabase:', data.title);
+          return data;
+        }
+        if (error) {
+          console.error('❌ Supabase createProduct error:', error.message);
+        }
       } catch (err) {}
     }
 
@@ -329,7 +349,7 @@ class DataStore {
   }
 
   async updateProduct(id, updates) {
-    if (this.supabaseAvailable) {
+    if (supabase) {
       try {
         const { data, error } = await supabase.from('products').update(updates).eq('id', id).select().single();
         if (!error && data) return data;
@@ -343,7 +363,7 @@ class DataStore {
   }
 
   async deleteProduct(id) {
-    if (this.supabaseAvailable) {
+    if (supabase) {
       try {
         const { error } = await supabase.from('products').delete().eq('id', id);
         if (!error) return true;
@@ -400,13 +420,19 @@ class DataStore {
       updated_at: new Date().toISOString()
     };
 
-    if (this.supabaseAvailable) {
+    if (supabase) {
       try {
         const { data, error } = await supabase.from('orders').insert([orderRecord]).select().single();
         if (!error && data) {
+          console.log('✅ Order saved in Supabase:', data.order_number);
           return { success: true, order: data };
         }
-      } catch (err) {}
+        if (error) {
+          console.error('❌ Supabase insert order error (Check RLS policies):', error.message, error.hint || '');
+        }
+      } catch (err) {
+        console.error('❌ Supabase processOrder exception:', err.message);
+      }
     }
 
     memoryStore.orders.unshift(orderRecord);
@@ -414,7 +440,7 @@ class DataStore {
   }
 
   async getAllOrders() {
-    if (this.supabaseAvailable) {
+    if (supabase) {
       try {
         const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
         if (!error && data) return data;
@@ -424,7 +450,7 @@ class DataStore {
   }
 
   async getOrdersByUser(user_id, email) {
-    if (this.supabaseAvailable) {
+    if (supabase) {
       try {
         let query = supabase.from('orders').select('*').order('created_at', { ascending: false });
         if (user_id) query = query.eq('user_id', user_id);
@@ -437,7 +463,7 @@ class DataStore {
   }
 
   async updateOrderStatus(id, status) {
-    if (this.supabaseAvailable) {
+    if (supabase) {
       try {
         const { data, error } = await supabase.from('orders').update({ status, updated_at: new Date().toISOString() }).eq('id', id).select().single();
         if (!error && data) return data;
